@@ -1,0 +1,7 @@
+greentext_output
+resources
+node_modules
+eng_bw
+*.traineddata
+.vscode
+vscode
