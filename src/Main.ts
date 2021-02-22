@@ -9,7 +9,8 @@ const worker3 = createWorker();
 const scheduler = createScheduler();
 const pathToImages = path.join(__dirname, "resources");
 const pathToText = path.join(__dirname, "greentext_output");
-const imagesToDownload = 10;
+const imagesToDownload = 2000;
+let imageLinks: Object[] = [];
 
 const url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}`;
 if(!fs.existsSync(pathToImages)) 
@@ -25,7 +26,7 @@ if(!fs.existsSync(pathToText))
  */
 axios.get(url).then(async (response) => {
     let data: Object[] = response.data.data;
-    let imageLinks: Object[] = [];
+    imageLinks = [];
     await data.forEach(x => {
         if(!x['url']) return;
         let type = x['url'].split(".")[3];
@@ -41,7 +42,10 @@ axios.get(url).then(async (response) => {
     })
     await parseImages(imageLinks)
 
-}).catch(err => console.log(err.message));
+}).catch(async(err) => {
+    console.log("ERROR GETTING AN IMAGE. WILL PARSE THE SUCCESSFUL ONES")
+    await parseImages(imageLinks)
+});
 
 /**
  * This method is using tesseract to read the images
@@ -51,7 +55,7 @@ axios.get(url).then(async (response) => {
  */
 const parseImages = async (imageNamesAndLinks: Object[]) => {
     if(imageNamesAndLinks.length == 0){
-        console.log("DONE");
+        console.log("NO IMAGES TO PARSE");
     }
     await worker1.load();
     await worker1.loadLanguage('eng');
@@ -68,9 +72,8 @@ const parseImages = async (imageNamesAndLinks: Object[]) => {
 
     Promise.all( 
         imageNamesAndLinks.map(async (imageObj) => {
-            let imagePath = path.join(pathToImages, imageObj['name']);
-            console.log(imagePath)
-            return {result: await scheduler.addJob('recognize', imagePath), imageName: imageObj['name']};
+            console.log(`Parsing ${imageObj['url']}`);
+            return {result: await scheduler.addJob('recognize', imageObj['url']), imageName: imageObj['name']};
         })
     ).then( results => {
         scheduler.terminate();
@@ -80,7 +83,7 @@ const parseImages = async (imageNamesAndLinks: Object[]) => {
         });
         console.log("DONE");
     }).catch(err => {
-        console.log(err);
+        console.log(`ERROR IN PARSING IMAGE:\n err:${err}`);
     });
 
 }
