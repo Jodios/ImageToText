@@ -2,16 +2,24 @@ import { createWorker, createScheduler } from "tesseract.js";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
+import os from "os";
+
+// each iteration downloads 100 images
+const iterations = 10;
 
 var workers: Tesseract.Worker[] = [];
-const numberOfWorkers = 20;
+const numberOfWorkers = os.cpus().length;
 const scheduler = createScheduler();
+
+var lowerDateRange: Date = new Date("01/09/2021")
+var laterDateRange: Date = new Date("01/10/2021")
+const imagesToDownload = 1000;
+const day = 1000 * 60 * 60 * 24;
+var url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
+
 const pathToImages = path.join(__dirname, "resources");
 const pathToText = path.join(__dirname, "greentext_output");
-const imagesToDownload = 1000;
-let imagePaths: Object[] = [];
-
-const url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}`;
+var imagePaths: Object[] = [];
 if (!fs.existsSync(pathToImages))
     fs.mkdirSync(pathToImages);
 if (!fs.existsSync(pathToText))
@@ -24,17 +32,11 @@ for (var i = 0; i < numberOfWorkers; i++) {
     workers.push(createWorker());
 }
 
-const asyncForEach = async (array: any[], callback) => {
-    for(let i = 0; i < array.length; i++){
-        await callback(array[i], i, array);
-    }
-}
-
 /**
  * This method is using tesseract to read the images
  * and extract the text from them. Text files are stores in
  * src/greentext_output
- * @param imageNamesAndLinks List of all image urls in the format {url: http://link.com, name: myImage.jpg}
+ * @param imageNamesAndLinks List of all image paths in the format C:/imageToText/src/resources/img.jpg
  */
 const parseImages = async (imageNamesAndLinks: Object[]) => {
     if (imageNamesAndLinks.length == 0) {
@@ -42,29 +44,31 @@ const parseImages = async (imageNamesAndLinks: Object[]) => {
         return;
     }
 
-    await asyncForEach(workers, async (worker) => {
-    
-        await worker.load();
-        await worker.loadLanguage('eng');
-        await worker.initialize('eng');
-        scheduler.addWorker(worker);
+    for (var i = 0; i < workers.length; i++) {
+        await workers[i].load();
+        await workers[i].loadLanguage('eng');
+        await workers[i].initialize('eng');
+        scheduler.addWorker(workers[i]);
+    }
 
-    })
-
-    Promise.all(
+    return Promise.all(
         imageNamesAndLinks.map(async (imageObj) => {
             console.log(`==============Parsing ${imageObj['url']}`);
-            return { result: await scheduler.addJob('recognize', imageObj['url']).then(result => {
+            return await scheduler.addJob('recognize', imageObj['url']).then(result => {
                 let text = result.data.text.replace(/^\s*[\r\n]/gm, "");
-                fs.writeFile(path.join(pathToText, imageObj['name'].split(".")[0] + ".txt"), text, (err) => console.log(err));
-            }), imageName: imageObj['name'] };
+                let textFile = imageObj['name'].split(".")[0] + ".txt";
+                fs.writeFile(path.join(pathToText, textFile), text, (err) => {
+                    console.log("=======================ERROR=======================")
+                    console.log(`ERROR WRITING ${textFile}: \n\t\t${err}`)
+                    console.log("=====================END_ERROR=====================")
+                });
+            }).catch(err => {
+                console.log("=======================ERROR=======================")
+                console.log(`error parsing ${imageObj['name']}: \n\t\t${err}`)
+                console.log("=====================END_ERROR=====================")
+            });
         })
-    ).then(results => {
-        console.log("DONE");
-    }).catch(err => {
-        console.log(`ERROR IN PARSING IMAGE:\n err:${err}`);
-    });
-
+    );
 }
 
 /**
@@ -83,42 +87,66 @@ const getPosts = async (): Promise<Object[]> => {
     });
 }
 
-const downloadPics = async (data: Object[]): Promise<Object[]> => {
-    return Promise.all(data.map(async (x) => {
-        if (!x['url'] || !x['url'].includes("i.redd.it")) return;
-        let type = x['url'].split(".")[3];
-        let name = (x['url'].split(".")[2]).split("/")[1];
+/**
+ * This method iterates through every post provided by {@method getPosts}
+ * and gets 'url' property from them if they exist and attempts to download the
+ * image and passes the downloaded bytes to {@method writeImagesToFile}
+ * @param posts List of a post object 
+ */
+const downloadPics = async (posts: Object[]): Promise<Object[]> => {
+    return Promise.all(posts.map(async (post) => {
+        if (!post['url'] || !post['url'].includes("i.redd.it")) return;
+        let type = post['url'].split(".")[3];
+        let name = (post['url'].split(".")[2]).split("/")[1];
         let fullname = name + "." + type;
         let imagePath = path.join(pathToImages, fullname);
-        if (type && !fs.existsSync(imagePath) && x['url']) {
-            return {stream:await axios.get(x['url'], { responseType: "stream" }).catch(err => console.log("ERR")), imagePath}
+        if (type && !fs.existsSync(imagePath) && post['url']) {
+            return { stream: await axios.get(post['url'], { responseType: "stream" }).catch(err => console.log("ERR")), imagePath }
         }
     }))
 }
 
+/**
+ * This method takes a stream of bytes and pipes it into an image file
+ * in {@constant pathToImages} and waits 5 seconds to make sure the files
+ * have been properly written to.
+ * @param imageStreams List of objects {stream: stream of bytes that make up image, imagePath: path to image}
+ */
 const writeImagesToFile = async (imageStreams: Object[]) => {
     return new Promise((resolve, reject) => {
-        if(!imageStreams || imageStreams.length == 0) resolve;
+        imagePaths = []
+        if (!imageStreams || imageStreams.length == 0) resolve;
         imageStreams.forEach(stream => {
             //@ts-ignore
-            if(!stream || !stream.stream) return;
+            if (!stream || !stream.stream) return;
             //@ts-ignore
             let imagePath: string = stream.imagePath;
             //@ts-ignore
-            if(!fs.existsSync(path.join(pathToText, path.basename(imagePath).split(".")[0]+"."+".txt")))
-                imagePaths.push({url:imagePath, name: path.basename(imagePath)});
+            if (!fs.existsSync(path.join(pathToText, path.basename(imagePath).split(".")[0] + "." + ".txt")))
+                imagePaths.push({ url: imagePath, name: path.basename(imagePath) });
             //@ts-ignore
             stream.stream.data.pipe(fs.createWriteStream(imagePath));
         })
         setTimeout(resolve, 5000);
-    })
+    });
 }
 
+
 const start = async () => {
-    let data: Object[] = await getPosts();
-    let imageStreams: Object[] = await downloadPics(data);
-    await writeImagesToFile(imageStreams);
-    parseImages(imagePaths);
+    for (var i = 0; i < iterations; i++) {
+
+        console.log(lowerDateRange);
+        console.log(laterDateRange);
+        console.log(url);
+        let data: Object[] = await getPosts();
+        let imageStreams: Object[] = await downloadPics(data);
+        await writeImagesToFile(imageStreams);
+        await parseImages(imagePaths);
+        lowerDateRange = new Date(lowerDateRange.getTime() - day);
+        laterDateRange = new Date(laterDateRange.getTime() - day);
+        url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
+
+    }
 }
 
 start();
