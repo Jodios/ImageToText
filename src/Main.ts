@@ -11,8 +11,8 @@ var workers: Tesseract.Worker[] = [];
 const numberOfWorkers = os.cpus().length;
 const scheduler = createScheduler();
 
-var lowerDateRange: Date = new Date("01/09/2021")
-var laterDateRange: Date = new Date("01/10/2021")
+var lowerDateRange: Date = new Date("12/29/2020")
+var laterDateRange: Date = new Date("12/30/2020")
 const day = 1000 * 60 * 60 * 24;
 var url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=1000&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
 
@@ -143,7 +143,7 @@ const start = async () => {
         await parseImages(imagePaths);
         lowerDateRange = new Date(lowerDateRange.getTime() - day);
         laterDateRange = new Date(laterDateRange.getTime() - day);
-        url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
+        url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=1000&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
 
     }
 }
