@@ -4,7 +4,7 @@ import path from "path";
 import axios from "axios";
 import os from "os";
 
-// each iteration downloads 100 images
+// each iteration downloads 100 posts. Not all have images
 const iterations = 10;
 
 var workers: Tesseract.Worker[] = [];
@@ -13,9 +13,8 @@ const scheduler = createScheduler();
 
 var lowerDateRange: Date = new Date("01/09/2021")
 var laterDateRange: Date = new Date("01/10/2021")
-const imagesToDownload = 1000;
 const day = 1000 * 60 * 60 * 24;
-var url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=${imagesToDownload}&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
+var url = `https://api.pushshift.io/reddit/search/submission/?subreddit=greentext&sort=desc&sort_type=created_utc&size=1000&after=${lowerDateRange.getTime() / 1000}&before=${laterDateRange.getTime() / 1000}`;
 
 const pathToImages = path.join(__dirname, "resources");
 const pathToText = path.join(__dirname, "greentext_output");
